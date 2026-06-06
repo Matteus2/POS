@@ -6,37 +6,54 @@ import 'screens/tela_login.dart';
 import 'services/banco_dados.dart';
 import 'services/servico_impressora.dart';
 
+/// Coleta de erros de inicialização — se algo falhar, mostra na tela
+/// em vez de deixar tela preta.
+final List<String> _errosInit = [];
+
 void main() async {
+  // Captura erros de framework e os mostra também
   WidgetsFlutterBinding.ensureInitialized();
+  FlutterError.onError = (details) {
+    FlutterError.presentError(details);
+    _errosInit.add('Flutter: ${details.exceptionAsString()}');
+  };
 
-  // Carrega símbolos de data em português (dia da semana abreviado etc.)
-  await initializeDateFormatting('pt_BR', null);
+  // CADA inicialização agora tem try/catch independente. Se uma falhar,
+  // as outras tentam, e o runApp() é chamado de qualquer jeito.
+  // Sem isso, qualquer exception aqui causa a famigerada "tela preta da morte"
+  // — o app abre mas runApp() nunca foi chamado, então não há UI pra desenhar.
 
-  // Garante que existe pelo menos 1 admin antes de mostrar a tela de login.
-  // Sem isso, na primeira instalação não teria ninguém pra entrar.
-  await _seedAdminPadrao();
+  try {
+    await initializeDateFormatting('pt_BR', null);
+  } catch (e) {
+    _errosInit.add('Locale pt_BR: $e');
+    // Fallback silencioso: o app vai mostrar datas em formato default.
+  }
 
-  // Auto-fecha pontos esquecidos do dia anterior (saída às 04:00).
-  // Analogia: é o porteiro que faz a ronda de madrugada e tranca as
-  // portas que o pessoal deixou abertas — depois o gerente vê os
-  // registros e decide se ajusta na mão.
+  try {
+    await _seedAdminPadrao();
+  } catch (e) {
+    _errosInit.add('Admin padrão: $e');
+  }
+
   try {
     await BancoDados.executarAutoFechamentoPontos();
   } catch (e) {
-    // ignore: avoid_print
-    print('Auto-fechamento de pontos falhou: $e');
+    _errosInit.add('Auto-fechamento: $e');
   }
 
-  // Reconecta impressora silenciosamente (não bloqueia a UI).
-  ServicoImpressora().reconectarUltima();
+  try {
+    ServicoImpressora().reconectarUltima();
+  } catch (e) {
+    _errosInit.add('Impressora: $e');
+  }
 
-  runApp(const PadariaPOSApp());
+  // runApp SEMPRE roda, mesmo se todas as inicializações falharam.
+  runApp(PadariaPOSApp(errosInit: _errosInit));
 }
 
 /// Cria um usuário admin padrão (Admin / 0000) se o banco de usuários
-/// estiver vazio. Pensado como "chave reserva" pra primeira instalação —
-/// o sócio que entrega o tablet pode usar essa senha pra cadastrar o
-/// admin real do cliente e depois desativá-la.
+/// estiver vazio. Pensado como "chave reserva" pra primeira instalação.
 Future<void> _seedAdminPadrao() async {
   final usuarios = await BancoDados.carregarUsuarios(somenteAtivos: false);
   if (usuarios.isNotEmpty) return;
@@ -50,7 +67,8 @@ Future<void> _seedAdminPadrao() async {
 }
 
 class PadariaPOSApp extends StatelessWidget {
-  const PadariaPOSApp({super.key});
+  final List<String> errosInit;
+  const PadariaPOSApp({super.key, this.errosInit = const []});
 
   @override
   Widget build(BuildContext context) {
@@ -81,7 +99,88 @@ class PadariaPOSApp extends StatelessWidget {
           ),
         ),
       ),
-      home: const TelaLogin(),
+      // Se houve erro grave (banco não abriu, etc.), mostra tela de
+      // diagnóstico. Caso contrário, fluxo normal.
+      home: errosInit.isEmpty
+          ? const TelaLogin()
+          : TelaErroInicializacao(erros: errosInit),
+    );
+  }
+}
+
+/// Tela que aparece quando há erros de inicialização. Em vez de tela
+/// preta silenciosa, mostra o que deu errado e dá um botão pra tentar
+/// abrir o app mesmo assim (alguns erros são não-fatais).
+class TelaErroInicializacao extends StatelessWidget {
+  final List<String> erros;
+  const TelaErroInicializacao({super.key, required this.erros});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Inicialização')),
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Icon(Icons.warning_amber_rounded,
+                  size: 64, color: Colors.orange),
+              const SizedBox(height: 12),
+              const Text(
+                'Avisos de inicialização',
+                style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'Algumas funcionalidades podem estar limitadas. '
+                'Você pode tentar abrir o app mesmo assim.',
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 20),
+              Expanded(
+                child: Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.red.shade50,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.red.shade200),
+                  ),
+                  child: SingleChildScrollView(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: erros
+                          .map((e) => Padding(
+                                padding: const EdgeInsets.symmetric(vertical: 4),
+                                child: Text(
+                                  '• $e',
+                                  style: const TextStyle(
+                                      fontSize: 12,
+                                      fontFamily: 'monospace'),
+                                ),
+                              ))
+                          .toList(),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              FilledButton.icon(
+                onPressed: () {
+                  Navigator.pushReplacement(
+                    context,
+                    MaterialPageRoute(builder: (_) => const TelaLogin()),
+                  );
+                },
+                icon: const Icon(Icons.arrow_forward),
+                label: const Text('Abrir mesmo assim'),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

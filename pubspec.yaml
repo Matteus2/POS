@@ -1,0 +1,38 @@
+name: padaria_pos
+description: Sistema de PDV para padarias com impressão Bluetooth ESC/POS.
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.6
+
+  # Persistência local
+  sqflite: ^2.3.0
+  path: ^1.8.3
+  path_provider: ^2.1.1
+
+  # Bluetooth + Impressão ESC/POS
+  # blue_thermal_printer é a lib mais madura/testada pra impressora térmica Bluetooth Classic
+  # (a maioria das impressoras de padaria usa Bluetooth Classic, não BLE)
+  # blue_thermal_printer: ^1.2.3
+  # esc_pos_utils_plus: ^2.0.4
+
+  # Permissões (necessárias no Android 12+)
+  permission_handler: ^11.0.1
+
+  # Utilidades
+  intl: ^0.19.0
+  shared_preferences: ^2.2.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+
+flutter:
+  uses-material-design: true
